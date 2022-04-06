@@ -44,6 +44,8 @@ Requires:   python3
 Requires:   python3-inotify
 Requires:   qubes-core-dom0 >= 4.1.9
 Requires:   qubes-core-qrexec = %{version}-%{release}
+Requires:   qubes-tutorial >= 1.0.8
+
 
 # changed qubesd socket protocol
 Conflicts:  qubes-core-dom0 < 4.1.12

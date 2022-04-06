@@ -27,6 +27,7 @@ import itertools
 import os
 import argparse
 import asyncio
+import qubes_tutorial.extensions
 
 import pkg_resources
 
@@ -42,6 +43,7 @@ import gbulb
 from .. import POLICY_AGENT_SOCKET_PATH
 from ..utils import sanitize_domain_name, sanitize_service_name
 from ..server import SocketService
+from ..tutorial import QubesQrexecPolicyGUITutorialExtension
 
 # pylint: enable=wrong-import-position
 
@@ -309,6 +311,10 @@ class RPCConfirmationWindow:
                   'error_message': "ErrorMessage",
                   }
 
+    def _show_tutorial_path_to_vm(self, vm_name):
+        # TODO
+        pass
+
     def _clicked_ok(self, source):
         assert source is not None, \
                'Called the clicked ok callback from no source object'
@@ -434,12 +440,14 @@ class RPCConfirmationWindow:
 
         self._connect_events()
 
+    @qubes_tutorial.extensions.register("qrexec_policy_gui:close")
     def _close(self):
         self._rpc_window.close()
 
     async def _wait_for_close(self):
         await gbulb.wait_signal(self._rpc_window, 'delete-event')
 
+    @qubes_tutorial.extensions.register("qrexec_policy_gui:open")
     def _show(self):
         self._rpc_window.set_keep_above(True)
         self._rpc_window.show_all()
@@ -463,10 +471,12 @@ class RPCConfirmationWindow:
 
 
 async def confirm_rpc(entries_info, source, service, argument, targets_list,
-                      target=None):
+                      target=None, tutorial_ext=None):
     # pylint: disable=too-many-arguments
     window = RPCConfirmationWindow(entries_info, source, service, argument,
                                    targets_list, target)
+    if tutorial_ext:
+        tutorial_ext.set_rpc_confirmation_window(window)
 
     return await window.confirm_rpc()
 
@@ -493,6 +503,10 @@ class PolicyAgent(SocketService):
         self._app = Gtk.Application()
         self._app.set_application_id('qubes.qrexec-policy-agent')
         self._app.register()
+        if True: # FIXME add toggle
+            self.tutorial_ext = QubesQrexecPolicyGUITutorialExtension()
+        else:
+            self.tutorial_ext = None
 
     async def handle_request(self, params, service, source_domain):
         if service == 'policy.Ask':
@@ -514,7 +528,7 @@ class PolicyAgent(SocketService):
 
         target = await confirm_rpc(
             entries_info, source, service, argument,
-            targets, default_target or None)
+            targets, default_target or None, self.tutorial_ext)
 
         if target:
             return 'allow:{}'.format(target)
