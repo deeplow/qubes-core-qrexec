@@ -48,13 +48,14 @@ from ..tutorial import QubesQrexecPolicyGUITutorialExtension
 # pylint: enable=wrong-import-position
 
 class VMListModeler:
-    def __init__(self, domains_info=None):
+    def __init__(self, domains_info=None, tut_ctx=None):
         self._entries = {}
         self._domains_info = domains_info
         self._icons = {}
         self._icon_size = 16
         self._theme = Gtk.IconTheme.get_default()
         self._create_entries()
+        self.tut_ctx = tut_ctx
 
     def _get_icon(self, name):
         if name not in self._icons:
@@ -119,10 +120,12 @@ class VMListModeler:
             if entry_box:
                 entry_box.set_icon_from_pixbuf(
                     Gtk.EntryIconPosition.PRIMARY, entry['icon'])
+                self.tut_ctx.highlight_entry_on_correct_name(entry_box, name)
         else:
             if entry_box:
                 entry_box.set_icon_from_stock(
                     Gtk.EntryIconPosition.PRIMARY, "gtk-find")
+                self.tut_ctx.highlight_entry_on_correct_name(entry_box, name)
 
         if selection_trigger:
             selection_trigger(data)
@@ -148,7 +151,6 @@ class VMListModeler:
                         entry['icon'],
                         entry['api_name'],
                     ])
-
 
             destination_object.set_model(list_store)
             destination_object.set_id_column(1)
@@ -216,7 +218,6 @@ class VMListModeler:
         else:
             raise TypeError(
                     "Only expecting Gtk.Entry objects to want our icon.")
-
 
 class GtkOneTimerHelper:
     # pylint: disable=too-few-public-methods
@@ -313,7 +314,12 @@ class RPCConfirmationWindow:
 
     def _show_tutorial_path_to_vm(self, vm_name):
         # TODO
-        pass
+        # highlight text area to type vm name
+        text_entry = self._rpc_combo_box.get_child()
+        qubes_tutorial.extensions.widget_highlight(text_entry)
+
+        # pre-type the vm_name so it's easier to see what one is suppose to do
+        text_entry.set_placeholder_text(f"type '{vm_name}'")
 
     def _clicked_ok(self, source):
         assert source is not None, \
@@ -394,10 +400,15 @@ class RPCConfirmationWindow:
         self._error_bar.connect("response", self._close_error)
 
     def __init__(self, entries_info, source, service, argument, targets_list,
-            target=None):
+            target=None, tut_ctx=None):
         # pylint: disable=too-many-arguments
         sanitize_domain_name(source, assert_sanitized=True)
         sanitize_service_name(source, assert_sanitized=True)
+
+        # setup tutorial
+        self.tut_ctx = tut_ctx
+        if self.tut_ctx:
+            self.tut_ctx.set_rpc_confirmation_window(self)
 
         self._gtk_builder = Gtk.Builder()
         self._gtk_builder.add_from_file(self._source_file)
@@ -425,11 +436,13 @@ class RPCConfirmationWindow:
             escape_and_format_rpc_text(service, argument))
 
         self._entries_info = entries_info
-        list_modeler = self._new_vm_list_modeler()
+        list_modeler = self._new_vm_list_modeler(tut_ctx)
 
         list_modeler.apply_model(self._rpc_combo_box, targets_list,
                     selection_trigger=self._update_ok_button_sensitivity,
                     activation_trigger=self._clicked_ok)
+
+        list_modeler
 
         self._source_entry.set_text(source)
         list_modeler.apply_icon(self._source_entry, source)
@@ -452,8 +465,8 @@ class RPCConfirmationWindow:
         self._rpc_window.set_keep_above(True)
         self._rpc_window.show_all()
 
-    def _new_vm_list_modeler(self):
-        return VMListModeler(self._entries_info)
+    def _new_vm_list_modeler(self, tut_ctx):
+        return VMListModeler(self._entries_info, tut_ctx)
 
     def _new_focus_stealing_helper(self):
         return FocusStealingHelper(
@@ -471,13 +484,10 @@ class RPCConfirmationWindow:
 
 
 async def confirm_rpc(entries_info, source, service, argument, targets_list,
-                      target=None, tutorial_ext=None):
+                      target=None, tut_ctx=None):
     # pylint: disable=too-many-arguments
     window = RPCConfirmationWindow(entries_info, source, service, argument,
-                                   targets_list, target)
-    if tutorial_ext:
-        tutorial_ext.set_rpc_confirmation_window(window)
-
+                                   targets_list, target, tut_ctx)
     return await window.confirm_rpc()
 
 
@@ -504,9 +514,9 @@ class PolicyAgent(SocketService):
         self._app.set_application_id('qubes.qrexec-policy-agent')
         self._app.register()
         if True: # FIXME add toggle
-            self.tutorial_ext = QubesQrexecPolicyGUITutorialExtension()
+            self.tut_ctx = QubesQrexecPolicyGUITutorialExtension()
         else:
-            self.tutorial_ext = None
+            self.tut_ctx = None
 
     async def handle_request(self, params, service, source_domain):
         if service == 'policy.Ask':
@@ -528,7 +538,7 @@ class PolicyAgent(SocketService):
 
         target = await confirm_rpc(
             entries_info, source, service, argument,
-            targets, default_target or None, self.tutorial_ext)
+            targets, default_target or None, self.tut_ctx)
 
         if target:
             return 'allow:{}'.format(target)
